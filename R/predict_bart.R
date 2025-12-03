@@ -40,32 +40,16 @@ predict_bart  <- function(obj, nthin = NULL, newdata = NULL, Gcomp = FALSE)
   if(is.data.frame(newdata)) newdata = as.matrix(newdata)
   
   if (!is.null(newdata)){
-    if(obj$type == "multinomial3"){
-      xL = obj$xcolnames
-      Xtest = vector("list",obj$ndim)
-      for(i in 1:obj$ndim){
-        xcolnames = xL[[i]]
-        if(length(xcolnames) == 1 ){
-          Xtest[[i]] <- data.frame(newdata[,xcolnames])
-          names(Xtest[[i]]) <- xcolnames[1]
-        } else {
-          Xtest[[i]] <- newdata[,xcolnames]
-        }
-      }
-      
-      testn = nrow(Xtest[[i]])
+    xcolnames = obj$xcolnames
+    
+    if(length(xcolnames) == 1 ){
+      Xtest <- data.frame(newdata[,xcolnames])
+      names(Xtest) <- xcolnames[1]
     } else {
-      xcolnames = obj$xcolnames
-      
-      if(length(xcolnames) == 1 ){
-        Xtest <- data.frame(newdata[,xcolnames])
-        names(Xtest) <- xcolnames[1]
-      } else {
-        Xtest <- newdata[,xcolnames]
-      }
-      
-      testn = nrow(Xtest)
+      Xtest <- newdata[,xcolnames]
     }
+    
+    testn = nrow(Xtest)
   } else {
     stop("newdata can not be NULL.")
   }
@@ -83,8 +67,7 @@ predict_bart  <- function(obj, nthin = NULL, newdata = NULL, Gcomp = FALSE)
   if(obj$type %in% c("continuous", "binary")){
     sigmasample = obj$sigmasample[dloc] #on the scale of original data
   } else {
-    tmp = matrix(obj$sigmasample, nrow = (obj$ndim)^2, ncol = npost)
-    sigmas = tmp[, dloc]
+    stop("check type")
   }
   
   if(Gcomp){
@@ -107,16 +90,8 @@ predict_bart  <- function(obj, nthin = NULL, newdata = NULL, Gcomp = FALSE)
   L6 = obj$TreeMod[[6]]
   L7 = obj$TreeMod[[7]]
   L8 = obj$TreeMod[[8]]
-  
-  if(obj$type == "multinomial3"){
-    xi = vector("list",obj$ndim)
-    for(i in 1:obj$ndim){
-      xtmp = obj$xi[[i]]
-      xi[[i]] = matrix(unlist(xtmp), ncol = length(xtmp[[1]]), byrow = TRUE)
-    }
-  } else {
-    xi =  matrix(unlist(obj$xi), ncol = length(obj$xi[[1]]), byrow = TRUE)  
-  }
+
+  xi =  matrix(unlist(obj$xi), ncol = length(obj$xi[[1]]), byrow = TRUE) 
   
   if(obj$type == "continuous"){
     rgy = obj$rgy
@@ -171,174 +146,12 @@ predict_bart  <- function(obj, nthin = NULL, newdata = NULL, Gcomp = FALSE)
        
     treefit = matrix(treefit, nrow = testn)
     
-  } else if(obj$type == "multinomial3"){
+  } 
     
-    burn = obj$fitMNP + burn
-    lwp = length(obj$working_param)        
-    obj$working_param = rep(1,lwp)
-    
-    treefit = c()
-    
-    for(i in 1:(obj$ndim)){
-      Lk1 = obj$TreeMod[[1]][[i]]
-      Lk2 = obj$TreeMod[[2]][[i]]
-      Lk3 = obj$TreeMod[[3]][[i]]
-      Lk4 = obj$TreeMod[[4]][[i]]
-      Lk5 = obj$TreeMod[[5]][[i]]
-      Lk6 = obj$TreeMod[[6]][[i]]
-      Lk7 = obj$TreeMod[[7]][[i]]
-      Lk8 = obj$TreeMod[[8]][[i]]
-      
-      res =   mybartpred(as.integer(Gcomp),
-                         Lk1,
-                         Lk2,
-                         Lk3,
-                         Lk4,
-                         Lk5,
-                         Lk6,
-                         Lk7,
-                         Lk8,
-                         Xtest[[i]],
-                         as.integer(ncol(Xtest[[i]])),
-                         as.integer(testn), as.integer(nthin),
-                         as.integer(ndraws), as.integer(npost),
-                         as.integer(burn),
-                         as.integer(ntrees[i]),
-                         xi[[i]])
-      treefit = cbind(treefit, res$vec_test)
-    }
-    
-    #sigmas = matrix(obj$sigmasample, nrow = (obj$ndim)^2, ncol = ndraws)
-    
-    samp_y = lapply(1:ndraws, function(j) getYhat_bart(j, obj$ndim, testn, obj$releveled, obj$maxy, treefit, sigmas, obj$working_param[j]))
-    
-    samp_y = simplify2array(samp_y)
-    
-    pclass = max.col(treefit)
-    maxw = apply(treefit,1,max)
-    pclass[which(maxw<0)] = obj$maxy
-    
-    samp_treefit =  obj$releveled[pclass] #vector of length n
-    samp_treefit = matrix(samp_treefit, nrow = testn)
-    
-  } else {
-    
-    if(obj$type == "multinomial2"){
-      burn = obj$fitMNP + burn
-      lwp = length(obj$working_param)        
-      obj$working_param = rep(1,lwp)
-    }
-    
-    if(obj$type == "multinomial0"){
-      lwp = length(obj$working_param)        
-      obj$working_param = rep(1,lwp)
-    }
-    
-    treefit = c()
-    
-    for(i in 1:(obj$ndim)){
-      Lk1 = obj$TreeMod[[1]][[i]]
-      Lk2 = obj$TreeMod[[2]][[i]]
-      Lk3 = obj$TreeMod[[3]][[i]]
-      Lk4 = obj$TreeMod[[4]][[i]]
-      Lk5 = obj$TreeMod[[5]][[i]]
-      Lk6 = obj$TreeMod[[6]][[i]]
-      Lk7 = obj$TreeMod[[7]][[i]]
-      Lk8 = obj$TreeMod[[8]][[i]]
-      
-      res =   mybartpred(as.integer(Gcomp),
-                         Lk1,
-                         Lk2,
-                         Lk3,
-                         Lk4,
-                         Lk5,
-                         Lk6,
-                         Lk7,
-                         Lk8,
-                         Xtest,
-                         as.integer(ncol(Xtest)),
-                         as.integer(testn), as.integer(nthin),
-                         as.integer(ndraws), as.integer(npost),
-                         as.integer(burn),
-                         as.integer(ntrees),
-                         xi)
-      treefit = cbind(treefit, res$vec_test)
-    }
-    
-    #sigmas = matrix(obj$sigmasample, nrow = (obj$ndim)^2, ncol = ndraws)
-    
-    samp_y = lapply(1:ndraws, function(j) getYhat_bart(j, obj$ndim, testn, obj$releveled, obj$maxy, treefit, sigmas, obj$working_param[j]))
-    
-    samp_y = simplify2array(samp_y)
-    
-    pclass = max.col(treefit)
-    maxw = apply(treefit,1,max)
-    pclass[which(maxw<0)] = obj$maxy
-    
-    samp_treefit =  obj$releveled[pclass] #vector of length n
-    samp_treefit = matrix(samp_treefit, nrow = testn)
-    
-    if(0){#use mympbartpred.cpp
-      treefit = c()
-      
-      for(i in 1:(obj$ndim)){
-        Lk1 = obj$TreeMod[[1]][[i]]
-        Lk2 = obj$TreeMod[[2]][[i]]
-        Lk3 = obj$TreeMod[[3]][[i]]
-        Lk4 = obj$TreeMod[[4]][[i]]
-        Lk5 = obj$TreeMod[[5]][[i]]
-        Lk6 = obj$TreeMod[[6]][[i]]
-        Lk7 = obj$TreeMod[[7]][[i]]
-        Lk8 = obj$TreeMod[[8]][[i]]
-        
-        res =   mybartpred(as.integer(Gcomp),
-                           Lk1,
-                           Lk2,
-                           Lk3,
-                           Lk4,
-                           Lk5,
-                           Lk6,
-                           Lk7,
-                           Lk8,
-                           Xtest,
-                           as.integer(ncol(Xtest)),
-                           as.integer(testn), as.integer(nthin),
-                           as.integer(ndraws), as.integer(npost),
-                           as.integer(burn),
-                           as.integer(ntrees),
-                           xi)
-        treefit = cbind(treefit, res$vec_test)
-      }
-      
-      tmp = c(t(treefit)) # z_draw_id_dim: e.g. dim = 2, (z111,z112,z121,z122,..., z nd n 1, z nd n 2)
-      
-      res =   mympbartpred(as.integer(obj$ndim),
-                         as.integer(testn),
-                         as.integer(ndraws), 
-                         tmp, 
-                         obj$sigmasample, 
-                         obj$working_param,
-                         as.integer(obj$maxy))
-      samp_y = matrix(obj$releveled[res$samp_y], nrow = testn)
-      
-      pclass = max.col(treefit)
-      maxw = apply(treefit,1,max)
-      pclass[which(maxw<0)] = obj$maxy
-      
-      samp_treefit =  obj$releveled[pclass] #vector of length n
-      samp_treefit = matrix(samp_treefit, nrow = testn)
-    }#end if(0)
-    
-  }
-    
-  if(obj$type %in% c("multinomial0","multinomial1","multinomial2","multinomial3")){
-    ret = list(treefit = treefit,
-               samp_y = samp_y,
-               samp_treefit = samp_treefit);
-  } else {
-    ret = list(treefit = treefit,
-               samp_y = samp_y);
-  }
+  
+  ret = list(treefit = treefit,
+             samp_y = samp_y);
+  
   
   
   return(ret)
