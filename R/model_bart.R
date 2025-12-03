@@ -7,12 +7,11 @@
 #'@param data Training Data with the response and covariates in formula or Xname,
 #'@param type Type of response, options are "continuous", "binary", and "multinomial",
 #'@param base In the case of multinomial response, sets the reference level of the multinomial response. For example, if the response takes values 2, 3, and 4, then base = "3" sets response value 3 as the reference. Default is the highest class,
-#'@param Prior List of Priors for continuous BART: e.g., Prior = list(nu=3,sigq=0.9, ntrees=200,  kfac=2.0, pswap=0,  pbd=1.0, pb=0.5 , beta = 2.0, alpha = 0.95, nc = 100, minobsnode = 10). List of Priors for Probit BART: e.g., Prior = list(ntrees=200,  kfac=2.0, pswap=0,  pbd=1.0, pb=0.5 , beta = 2.0, alpha = 0.95, nc = 100, minobsnode = 10). List of Priors for multinomial Probit BART: e.g., Prior = list(nu=p+2,  V= diag(p - 1), ntrees=200,  kfac=2.0, pswap=0,  pbd=1.0, pb=0.5 , beta = 2.0, alpha = 0.95, nc = 100, minobsnode = 10).
+#'@param Prior List of Priors for continuous BART: e.g., Prior = list(nu=3,sigq=0.9, ntrees=200,  kfac=2.0, pswap=0,  pbd=1.0, pb=0.5 , beta = 2.0, alpha = 0.95, nc = 100, minobsnode = 10). List of Priors for Probit BART: e.g., Prior = list(ntrees=200,  kfac=2.0, pswap=0,  pbd=1.0, pb=0.5 , beta = 2.0, alpha = 0.95, nc = 100, minobsnode = 10).
 #'The components of Prior are
 #' \itemize{
-#'\item nu: For continuous response: the degree of freedom in the inverse chi-square prior distribution of the error variance; for multinomial response: The covariance matrix of latent variables is assumed to have prior distribution Inv-Wish(nu, V), nu is the degree of freedom and nu > (nlatent - 1).
+#'\item nu: For continuous response: the degree of freedom in the inverse chi-square prior distribution of the error variance.
 #'\item sigq: In the case of continuous response, the quantile of the error variance prior that the rough estimate (from linear regression) is placed at.
-#'\item V : In the case of multinomial response, the positive definite scale matrix in the Inverse-Wishart prior of the covariance matrix.
 #'\item ntrees : The total number of trees in each round of BART fitting, or a vector with the ith element being the number of trees for the ith latent variable when Yname and Xname are used,
 #'\item kfac : A tuning parameter that satisfies mu - kfac * sigma = ymin and mu + kfac * sigma = ymax, where mu and sigma are the mean and std of the Gaussian prior distribution of the sum of fit of all trees.
 #'\item pswap : The prior probability of swap move in simulating trees; default 0, there should be pswap no larger than 1-pbd.
@@ -32,11 +31,6 @@
 #'}
 #'@param diagnostics Returns convergence diagnostics and variable inclusion proportions if True (default),
 #'@param make.prediction Returns simulated outcome samp_y if TRUE (default); FALSE is only applicable to continuous and binary outcomes,
-#'@param correction Analysis applies correction from Jiao and van Dyk (2015) if TRUE (default); framework from Burgette and Nordheim (2012) is used if FALSE,
-#'@param fitMNP If type is multinomial, then fitMNP is the number of rounds to pre-fit sum-of-trees on the w0 conditional on sigma0, default is zero; if fitMNP is not zero, there must be input for Mcmc w0 and sigma0,
-#'@param bylatent If 0 then trees are updated across latents in the order of trees, otherwise across all trees in the order of latents,
-#'@param Kindo Implement the modified version of MPBART by Kindo et al (2016) if TRUE; our modified MPBART with accelerated convergence is applied if FALSE (default),
-#'@param do_alpha2_prior If TRUE, the working parameter is updated with both the latent variables and the covariance matrix sampling; if FALSE, only updated with the covariance matrix sampling,
 #'@return treefit ndraws x n posterior matrix of the training data sum of trees fit,
 #'@return samp_y ndraws x n posterior matrix of the simulated outcome,
 #'@return sigmasample posterior samples of the error standard deviation.
@@ -72,32 +66,9 @@
 #'@export
 #'@useDynLib GcompBART
 model_bart  <- function(formula = NULL, Yname = NULL, Xname = NULL, data, type, base = NULL,
-                      Prior = NULL, Mcmc = NULL, diagnostics = TRUE, 
-                      make.prediction = TRUE, correction = TRUE, fitMNP = NULL, bylatent = NULL,
-                      Kindo = FALSE, do_alpha2_prior = TRUE)
+                        Prior = NULL, Mcmc = NULL, diagnostics = TRUE, 
+                        make.prediction = TRUE)
 {
-  if(!is.null(fitMNP)){ #first chceck
-    if(type != "multinomial"){
-      stop("Check type input.")
-    } else {
-      if(!is.null(formula)){
-        type = "multinomial2"
-      } else {
-        if(!is.null(Prior$ntrees))
-          if(length(Prior$ntrees)!=length(Xname))
-            stop("Number of trees should be an integer vector with length same as Xname")
-        type = "multinomial3"
-      }
-    }
-  }
-  
-  if(type == "multinomial"){ #second check
-    if(Kindo==FALSE){
-      type = "multinomial0"
-    } else {
-      type = "multinomial1"
-    }
-  }
   
   if(!is.null(formula)){
     
@@ -190,7 +161,7 @@ model_bart  <- function(formula = NULL, Yname = NULL, Xname = NULL, data, type, 
   
   if(missing(Prior))
   {
-  ntrees=200; kfac=2.0;pswap=0;pbd=1.0;pb=0.5;beta = 2.0;alpha = 0.95; nc = 100; minobsnode = 10;
+    ntrees=200; kfac=2.0;pswap=0;pbd=1.0;pb=0.5;beta = 2.0;alpha = 0.95; nc = 100; minobsnode = 10;
   }
   else
   {
@@ -238,76 +209,9 @@ model_bart  <- function(formula = NULL, Yname = NULL, Xname = NULL, data, type, 
     
   } else if(type == "binary"){
     Data = list(y = Y,X = X)
-   
-  } else if(type %in% c("multinomial0", "multinomial1", "multinomial2","multinomial3")){
-    ### processing Y
-    Y <- as.factor(Y)
-    lev <- levels(Y)
-    p <- length(lev)
-    if (p < 3){
-      stop("The number of alternatives should be at least 3.")
-    }
     
-    if (!is.null(base))
-    {
-      base <- base
-      if(!(base %in% lev)) stop(paste("Error: `base' does not exist in the response variable."))
-    } else {
-      base <- lev[p]
-    }
-    
-    Y <- relevel(Y, ref = base)
-    lev <- levels(Y)
-    
-    base <- lev[1]
-    counts <- table(Y)
-    if (any(counts == 0)) {
-      warning(paste("group(s)", paste(lev[counts == 0], collapse = " "), "are empty"))
-      Y <- factor(Y, levels  = lev[counts > 0])
-      lev <- lev[counts > 0]
-    }
-    Y <- as.numeric(unclass(Y)) - 1
-    Y <- ifelse(Y==0, p,Y)
-    
-    cat("The base level is: '", lev[1], "'.\n\n", sep="")
-    
-    relvelved <- c(lev[2:length(lev)], lev[1])
-    ###
-    
-    Data = list(p=p,y=Y,X= X)
-    
-    cat("Table of y values",fill=TRUE)
-    print(table(model.response(mf) ))
-
-    pm1=p-1
-    
-    if(is.null(formula)){
-      if(lXname != pm1) stop("Error: length of Xname should be the number of latent variables.")
-    }
-    
-    if(missing(Prior))
-    {
-      if(type == "multinomial3") ntrees = rep(200,pm1);
-      nu=pm1+3; V=nu*diag(pm1);
-    }
-    else
-    { 
-      if(type == "multinomial3"){
-        if(is.null(Prior$ntrees)) {ntrees = rep(200,pm1)} else {ntrees = Prior$ntrees}
-      }
-      
-      if(is.null(Prior$nu)) {nu=pm1+3} else {nu=Prior$nu}
-      if(is.null(Prior$V)) {V=nu*diag(pm1)} else {V=Prior$V}
-    }
-    
-    if(is.null(Mcmc$w0)) {w=matrix(0,nrow = n, ncol = pm1)} else {w=Mcmc$w0}
-    if(is.null(Mcmc$sigma0)) {sigma0=diag(pm1)} else {sigma0=Mcmc$sigma0}
-    if(is.null(Mcmc$nSigDr)) {nSigDr=50} else {nSigDr=Mcmc$nSigDr}
-    
-    sigmai = solve(sigma0)
-    
-  }
-
+  } 
+  
   cat("Number of trees: ", paste(ntrees," "), ".\n\n", sep="")
   cat("Number of draws: ", ndraws, ".\n\n", sep="")
   cat("burn-in: ", burn, ".\n\n", sep="") 
@@ -375,7 +279,7 @@ model_bart  <- function(formula = NULL, Yname = NULL, Xname = NULL, data, type, 
                        as.integer(diagnostics))
     
     names(res$Inclusion_Proportions) = xcolnames
-
+    
     if(make.prediction){
       res$samp_y = rnorm(n*ndraws, res$treefit, 1)
       res$samp_y = 1*(res$samp_y > 0)
@@ -391,177 +295,7 @@ model_bart  <- function(formula = NULL, Yname = NULL, Xname = NULL, data, type, 
                            "ndraws" = ndraws,
                            "type" = "binary"), length(res))
     
-  } else if(type == "multinomial0"){
-
-    res =   mympbartmod(Data$X,
-                        sigmai,
-                        V,
-                        as.integer(nu),
-                       as.integer(n),
-                       as.integer(pm1),
-                       Data$y,
-                       as.integer(ncol(Data$X)),
-                       as.integer(ndraws),
-                       as.integer(burn),
-                       as.integer(ntrees),
-                       as.integer(nSigDr),
-                       as.double(kfac),
-                       as.double(pswap),
-                       as.double(pbd),
-                       as.double(pb),
-                       as.double(alpha),
-                       as.double(beta),
-                       as.integer(nc),
-                       as.integer(minobsnode),
-                       binaryX,
-                       as.integer(diagnostics),
-                       as.integer(correction),
-                       as.integer(do_alpha2_prior))
-    
-    colnames(res$Inclusion_Proportions) = xcolnames
-    
-    relvelved = as.numeric(relvelved)
-    res$samp_y <- matrix(relvelved[res$samp_y], nrow = n)
-    
-    res = append(res, list("ndim" = pm1,
-                           "xcolnames"=xcolnames,
-                           "ntrees" = ntrees,
-                           "burn" = burn,
-                           "ndraws" = ndraws,
-                           "releveled" = relvelved,
-                           "type" = "multinomial0"), length(res))
-    
-    
-  } else if(type == "multinomial1"){
-    res =   mympbartmod1(Data$X,
-                        sigmai,
-                        V,
-                        as.integer(nu),
-                        as.integer(n),
-                        as.integer(pm1),
-                        Data$y,
-                        as.integer(ncol(Data$X)),
-                        as.integer(ndraws),
-                        as.integer(burn),
-                        as.integer(ntrees),
-                        as.integer(nSigDr),
-                        as.double(kfac),
-                        as.double(pswap),
-                        as.double(pbd),
-                        as.double(pb),
-                        as.double(alpha),
-                        as.double(beta),
-                        as.integer(nc),
-                        as.integer(minobsnode),
-                        binaryX,
-                        as.integer(diagnostics),
-                        as.integer(correction),
-                        as.integer(do_alpha2_prior))
-    
-    colnames(res$Inclusion_Proportions) = xcolnames
-    
-    relvelved = as.numeric(relvelved)
-    res$samp_y <- matrix(relvelved[res$samp_y], nrow = n)
-    
-    res = append(res, list("ndim" = pm1,
-                           "xcolnames"=xcolnames,
-                           "ntrees" = ntrees,
-                           "burn" = burn,
-                           "ndraws" = ndraws,
-                           "releveled" = relvelved,
-                           "type" = "multinomial1"), length(res))
-    
-    
-  } else if(type == "multinomial2"){
-    res =   mympbartmod2(Data$X,
-                        sigmai,
-                        V,
-                        as.integer(nu),
-                        as.integer(n),
-                        as.integer(pm1),
-                        Data$y,
-                        as.integer(ncol(Data$X)),
-                        as.integer(ndraws),
-                        as.integer(burn),
-                        as.integer(ntrees),
-                        as.integer(nSigDr),
-                        as.double(kfac),
-                        as.double(pswap),
-                        as.double(pbd),
-                        as.double(pb),
-                        as.double(alpha),
-                        as.double(beta),
-                        as.integer(nc),
-                        as.integer(minobsnode),
-                        binaryX,
-                        as.integer(diagnostics),
-                        as.integer(correction),
-                        w,
-                        as.integer(fitMNP))
-    
-    colnames(res$Inclusion_Proportions) = xcolnames
-    
-    relvelved = as.numeric(relvelved)
-    res$samp_y <- matrix(relvelved[res$samp_y], nrow = n)
-    
-    res = append(res, list("ndim" = pm1,
-                           "xcolnames"=xcolnames,
-                           "ntrees" = ntrees,
-                           "burn" = burn,
-                           "ndraws" = ndraws,
-                           "releveled" = relvelved,
-                           "type" = "multinomial2",
-                           "fitMNP" = fitMNP), length(res))
-    
-    
-  } else if(type == "multinomial3"){
-    #ncov and ntrees are integer vector here
-    res =   mympbartmod3(Data$X,
-                         sigmai,
-                         V,
-                         as.integer(nu),
-                         as.integer(n),
-                         as.integer(pm1),
-                         Data$y,
-                         as.integer(ncov),
-                         as.integer(ndraws),
-                         as.integer(burn),
-                         as.integer(ntrees),
-                         as.integer(nSigDr),
-                         as.double(kfac),
-                         as.double(pswap),
-                         as.double(pbd),
-                         as.double(pb),
-                         as.double(alpha),
-                         as.double(beta),
-                         as.integer(nc),
-                         as.integer(minobsnode),
-                         binaryX,
-                         as.integer(diagnostics),
-                         as.integer(correction),
-                         w,
-                         as.integer(fitMNP),
-                         as.integer(bylatent))
-    for(i in 1:pm1){
-      names(res$Inclusion_Proportions[[i]]) = xcolnamesL[[i]] 
-    }
-    
-    relvelved = as.numeric(relvelved)
-    res$samp_y <- matrix(relvelved[res$samp_y], nrow = n)
-    
-    res = append(res, list("ndim" = pm1,
-                           "xcolnames"=xcolnamesL,
-                           "ntrees" = ntrees,
-                           "burn" = burn,
-                           "ndraws" = ndraws,
-                           "releveled" = relvelved,
-                           "type" = "multinomial3",
-                           "fitMNP" = fitMNP,
-                           "bylatent" = bylatent,
-                           "ncov" = ncov), length(res))
-    
-    
-  }
+  }    
   
   
   
