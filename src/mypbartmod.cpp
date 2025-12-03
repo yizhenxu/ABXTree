@@ -30,7 +30,23 @@ List mypbartmod(NumericMatrix XMat,
                int nc,
                int minobs,
                NumericVector binaryX,
-               int dgn) {
+               int dgn,
+               NumericMatrix IMP_mat,  // (nd * nrowX) x kp
+               IntegerVector IMP_idx
+) {
+
+  int nrowX = XMat.nrow();
+  int ncolX = XMat.ncol();
+  int kp    = IMP_mat.ncol();
+  int nd_imp    = IMP_mat.nrow() / nrowX;
+  
+  // some sanity checks if you like
+  if (nd_imp != nd) {
+    Rcpp::stop("IMP_mat has %d x nrowX rows but nd is %d", nd_imp, nd);
+  }
+  if (kp != IMP_idx.size()) {
+    Rcpp::stop("IMP_mat has %d columns but IMP_idx has length %d", kp, IMP_idx.size());
+  }
   
   size_t m = (size_t) numtrees;
   
@@ -124,7 +140,7 @@ List mypbartmod(NumericMatrix XMat,
     incProptmp[i] = 0.0;
   }
   int tnd = burn + nd;
-  NumericVector vec_train(nn*nd), percA(tnd), numNodes(tnd), numLeaves(tnd), treeDepth(tnd), incProp(n_cov);
+  NumericVector vec_train(nn*nd), w_train(nn*nd), percA(tnd), numNodes(tnd), numLeaves(tnd), treeDepth(tnd), incProp(n_cov);
   
   //TreeMod
   std::vector<double> L1; //action type
@@ -156,7 +172,16 @@ List mypbartmod(NumericMatrix XMat,
   for(int loop=0;loop < tnd;loop++) { /* Start posterior draws */
   
   if(loop%100==0) Rprintf("\n iteration: %d of %d \n",loop, nd+burn);
-  
+
+  NumericMatrix XMat_loop = clone(XMat);
+  for (int row = 0; row < nrowX; ++row) {
+    for (int j = 0; j < kp; ++j) {
+      int flat_row = loop * nrowX + row;
+      int col = IMP_idx[j] - 1; // 1-based -> 0-based
+      XMat_loop(row, col) = IMP_mat(flat_row, j);
+    }
+  }
+    
   /* Step 1 */
   /* See tree sampling theory.doc for explanation */
   for(size_t ntree = 0 ; ntree <m; ntree++){
@@ -170,12 +195,12 @@ List mypbartmod(NumericMatrix XMat,
     di.y = &rtemp[0];
     
     if(dgn){
-      bd1(XMat, t[ntree], xi, di, pi, minobsnode, binaryX, &nLtDtmp[ntree], &percAtmp[ntree], &numNodestmp[ntree], &numLeavestmp[ntree], &treeDepthtmp[ntree], incProptmp, L1, L2, L3, L4, L5, L6, L7, L8);
+      bd1(XMat_loop, t[ntree], xi, di, pi, minobsnode, binaryX, &nLtDtmp[ntree], &percAtmp[ntree], &numNodestmp[ntree], &numLeavestmp[ntree], &treeDepthtmp[ntree], incProptmp, L1, L2, L3, L4, L5, L6, L7, L8);
     } else {
-      bd(XMat, t[ntree], xi, di, pi, minobsnode, binaryX, L1, L2, L3, L4, L5, L6, L7, L8);
+      bd(XMat_loop, t[ntree], xi, di, pi, minobsnode, binaryX, L1, L2, L3, L4, L5, L6, L7, L8);
     }
     
-    fit(t[ntree], XMat, di, xi, ftemp[ntree]);
+    fit(t[ntree], XMat_loop, di, xi, ftemp[ntree]);
     for(size_t i=0;i<di.n_samp;i++) {
       allfit[i] += ftemp[ntree][i];
     }
@@ -224,6 +249,7 @@ List mypbartmod(NumericMatrix XMat,
 
     for(size_t k = 0; k <di.n_samp; k++){
       vec_train[countvectrain] = allfit[k];
+      w_train[countvectrain] = w[k];
       countvectrain++;
     }//end prediction for train
     
@@ -250,6 +276,7 @@ List mypbartmod(NumericMatrix XMat,
   
   if(dgn){
     z = List::create( Rcpp::Named("treefit") = vec_train, 
+                      Rcpp::Named("latent") = w_train,
                       Rcpp::Named("Percent_Acceptance") = percA, 
                       Rcpp::Named("Tree_Num_Nodes") = numNodes, 
                       Rcpp::Named("Tree_Num_Leaves") = numLeaves, 
@@ -259,6 +286,7 @@ List mypbartmod(NumericMatrix XMat,
                       Rcpp::Named("xi") = Rcpp::wrap(xi)) ;
   } else {
     z = List::create( Rcpp::Named("treefit") = vec_train,
+                      Rcpp::Named("latent") = w_train,
                       Rcpp::Named("TreeMod") = TreeMod,
                       Rcpp::Named("xi") = Rcpp::wrap(xi)) ;
   }
